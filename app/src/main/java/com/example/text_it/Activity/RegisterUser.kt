@@ -1,96 +1,127 @@
 package com.example.text_it.Activity
 
-import android.content.ContentResolver
+import android.content.ContentValues.TAG
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
 import android.os.Bundle
-import android.provider.MediaStore
+import android.util.Log
 import android.widget.Button
-import android.widget.ImageView
+import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.text_it.R
+import com.google.firebase.FirebaseException
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.PhoneAuthCredential
+import com.google.firebase.auth.PhoneAuthOptions
+import com.google.firebase.auth.PhoneAuthProvider
+import com.google.firebase.auth.UserProfileChangeRequest
+import com.hbb20.CountryCodePicker
+import java.util.concurrent.TimeUnit
+
 
 class RegisterUser : AppCompatActivity() {
-    companion object {
-        private const val SELECT_IMAGE_REQUEST = 1
-    }
 
-    private lateinit var imageView: ImageView
+    private lateinit var auth: FirebaseAuth
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_register_user)
 
-        imageView = findViewById(R.id.imageView)
+        auth = FirebaseAuth.getInstance()
 
-        imageView.setOnClickListener {
-            openImagePicker()
-        }
-
-        val loginBut: Button = findViewById(R.id.buttonLogin)
+        val backButton: ImageButton = findViewById(R.id.backButton)
         val regBut: Button = findViewById(R.id.buttonRegister)
 
-        loginBut.setOnClickListener {
+        val name: EditText = findViewById(R.id.editTextName)
+        val ccp: CountryCodePicker = findViewById(R.id.ccp)
+        val phone: EditText = findViewById(R.id.editTextPhone)
+        val email: EditText = findViewById(R.id.editTextEmail)
+        val password: EditText = findViewById(R.id.editTextPassword)
+        val confirmPassword: EditText = findViewById(R.id.editTextConfirmPassword)
+
+        ccp.registerCarrierNumberEditText(phone)
+
+        backButton.setOnClickListener {
             startActivity(
                 Intent(
-                    this, LoginUser::class.java
+                    this, page1::class.java
                 )
             )
         }
         regBut.setOnClickListener {
-//            implement the logic of registering the user using firebase
+            var doLogin = true
+            if (password.text.toString() != confirmPassword.text.toString()) {
+                doLogin = false
+                Toast.makeText(
+                    baseContext, "Passwords do not match",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            if (name.text.toString() == "" || phone.toString() == "" || email.text.toString() == "" || password.text.toString() == "" || confirmPassword.text.toString() == "") {
+                Toast.makeText(
+                    baseContext, "Please fill in all fields",
+                    Toast.LENGTH_SHORT
+                ).show()
+                doLogin = false
+            }
+            if (!ccp.isValidFullNumber) {
+                Toast.makeText(
+                    baseContext, "Please enter a valid phone number",
+                    Toast.LENGTH_SHORT
+                ).show()
+                doLogin = false
+            }
+            if (doLogin) {
+                val options = PhoneAuthOptions.newBuilder(auth)
+                    .setPhoneNumber(ccp.fullNumberWithPlus)
+                    .setTimeout(60L, TimeUnit.SECONDS)
+                    .setActivity(this)
+                    .setCallbacks(object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+                        override fun onVerificationCompleted(credential: PhoneAuthCredential) {
+                            Log.d(TAG, "onVerificationCompleted:$credential")
+                            Toast.makeText(
+                                baseContext, "Verification Completed",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            startActivity(
+                                Intent(
+                                    this@RegisterUser, baseHomeActivity::class.java
+                                )
+                            )
+                        }
 
-        }
-    }
+                        override fun onVerificationFailed(e: FirebaseException) {
+                            Log.w(TAG, "onVerificationFailed", e)
+                            Toast.makeText(
+                                baseContext, "Verification Failed",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
 
-    private fun openImagePicker() {
-        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        startActivityForResult(intent, SELECT_IMAGE_REQUEST)
-
-    }
-
-    private fun adjustImageViewSize(imageView: ImageView, bitmap: Bitmap) {
-        val targetWidth = imageView.width
-        val aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
-        val targetHeight = (targetWidth / aspectRatio).toInt()
-        val layoutParams = imageView.layoutParams
-        layoutParams.height = targetHeight
-        imageView.layoutParams = layoutParams
-        imageView.scaleType =
-            ImageView.ScaleType.FIT_XY
-    }
-
-    private fun getBitmapFromUri(uri: Uri): Bitmap? {
-        return try {
-            val contentResolver: ContentResolver = contentResolver
-            val inputStream = contentResolver.openInputStream(uri)
-            BitmapFactory.decodeStream(inputStream)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode == RESULT_OK && requestCode == SELECT_IMAGE_REQUEST) {
-            val imageUri: Uri? = data?.data
-            if (imageUri != null) {
-                val imageBitmap = getBitmapFromUri(imageUri)
-                if (imageBitmap != null) {
-                    imageView.setImageBitmap(imageBitmap)
-                    adjustImageViewSize(imageView, imageBitmap)
-                    Toast.makeText(this, "Image SET", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "Failed to load image", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(this, "Image NOT SET", Toast.LENGTH_SHORT).show()
+                        override fun onCodeSent(
+                            verificationId: String,
+                            token: PhoneAuthProvider.ForceResendingToken
+                        ) {
+                            Log.d(TAG, "onCodeSent:$verificationId")
+                            Toast.makeText(
+                                baseContext, "Code Sent",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            val intent = Intent(this@RegisterUser, OTPVerification::class.java)
+                            intent.putExtra("verificationId", verificationId)
+                            intent.putExtra("phoneNumber", ccp.fullNumberWithPlus)
+                            intent.putExtra("name", name.text.toString())
+                            intent.putExtra("email", email.text.toString())
+                            intent.putExtra("password", password.text.toString())
+                            startActivity(intent)
+                        }
+                    })
+                    .build()
+                PhoneAuthProvider.verifyPhoneNumber(options)
             }
         }
-    }
 
+
+    }
 }
